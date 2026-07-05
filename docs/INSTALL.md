@@ -32,7 +32,7 @@ Kali/Debian:
 
 ```bash
 sudo apt update
-sudo apt install -y python3 gcc libc6-dev openssl sudo policykit-1
+sudo apt install -y python3 gcc libc6-dev openssl sudo polkitd pkexec
 ```
 
 ## 1. Put the Project in a Shared Folder

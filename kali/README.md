@@ -32,7 +32,7 @@ If a dependency is missing:
 
 ```bash
 sudo apt update
-sudo apt install -y python3 gcc libc6-dev openssl sudo policykit-1
+sudo apt install -y python3 gcc libc6-dev openssl sudo polkitd pkexec
 ```
 
 KDE Plasma uses PAM service `kde` for lock-screen authentication by default; the lock script also covers `kscreensaver` and `kcheckpass` when present.

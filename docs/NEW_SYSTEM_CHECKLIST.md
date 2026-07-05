@@ -29,7 +29,7 @@ Use this when setting up another Parallels Linux VM.
 
    ```bash
    sudo apt update
-   sudo apt install -y python3 gcc libc6-dev openssl sudo policykit-1
+   sudo apt install -y python3 gcc libc6-dev openssl sudo polkitd pkexec
    ```
 
 5. VM-side install:

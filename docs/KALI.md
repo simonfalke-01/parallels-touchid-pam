@@ -18,7 +18,7 @@ Kali may already have some of these. Install the basics:
 
 ```bash
 sudo apt update
-sudo apt install -y python3 gcc libc6-dev openssl sudo policykit-1
+sudo apt install -y python3 gcc libc6-dev openssl sudo polkitd pkexec
 ```
 
 ## 3. Install Kali VM Side
