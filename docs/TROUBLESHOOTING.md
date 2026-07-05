@@ -2,16 +2,16 @@
 
 ## Check Overall Status
 
-From Fedora:
+From the VM:
 
 ```bash
-./fedora/status.sh
+./linux/status.sh
 ```
 
 Or directly:
 
 ```bash
-/usr/local/libexec/fedora-touchid-pam --status
+/usr/local/libexec/parallels-touchid-pam --status
 ```
 
 Healthy output includes:
@@ -21,10 +21,10 @@ heartbeat: ok age=...
 provisioning: absent
 ```
 
-## Fedora Logs
+## VM Logs
 
 ```bash
-journalctl -t fedora-touchid-pam --since "10 minutes ago" --no-pager
+journalctl -t parallels-touchid-pam --since "10 minutes ago" --no-pager
 ```
 
 Successful examples:
@@ -42,18 +42,20 @@ The LaunchAgent writes:
 ```text
 ~/Library/Application Support/FedoraTouchIDPAM/helper.log
 ~/Library/Application Support/FedoraTouchIDPAM/helper.err
+~/Library/Application Support/ParallelsTouchIDPAM/helper.log
+~/Library/Application Support/ParallelsTouchIDPAM/helper.err
 ```
 
 Check LaunchAgent state:
 
 ```bash
-launchctl print "gui/$(id -u)/com.fedora-touchid-pam.helper"
+launchctl print "gui/$(id -u)/com.parallels-touchid-pam.helper"
 ```
 
 Restart it:
 
 ```bash
-launchctl kickstart -k "gui/$(id -u)/com.fedora-touchid-pam.helper"
+launchctl kickstart -k "gui/$(id -u)/com.parallels-touchid-pam.helper"
 ```
 
 ## No Touch ID Prompt
@@ -62,32 +64,32 @@ Check:
 
 1. The macOS helper is running.
 2. `bridge/state/heartbeat` is fresh.
-3. `provisioning/fedora-touchid-pam.env` is absent.
+3. `provisioning/parallels-touchid-pam.env` is absent.
 4. The PAM service has the hook.
-5. Fedora logs show which PAM service is actually used.
+5. VM logs show which PAM service is actually used.
 
-For KDE unlock, Fedora logs showed `pam_unix(kde:auth)`, so the hook had to be added to `/etc/pam.d/kde`.
+For KDE unlock, logs can show `pam_unix(kde:auth)`, so the hook must cover `/etc/pam.d/kde`.
 
-## `Permission denied: /etc/fedora-touchid-pam/secret`
+## `Permission denied: /etc/parallels-touchid-pam/secret`
 
 The setuid wrapper is missing or not mode `4755`.
 
 Fix by rerunning:
 
 ```bash
-./fedora/install-fedora-sudo.sh
+./linux/install-linux-sudo.sh
 ```
 
 Expected file modes:
 
 ```bash
-ls -l /usr/local/libexec/fedora-touchid-pam /usr/local/libexec/fedora-touchid-pam.py
+ls -l /usr/local/libexec/parallels-touchid-pam /usr/local/libexec/parallels-touchid-pam.py
 ```
 
 The wrapper should look like:
 
 ```text
--rwsr-xr-x root root /usr/local/libexec/fedora-touchid-pam
+-rwsr-xr-x root root /usr/local/libexec/parallels-touchid-pam
 ```
 
 ## `heartbeat: missing`
@@ -98,7 +100,7 @@ On macOS:
 
 ```bash
 ./macos/install-macos-helper.sh
-launchctl print "gui/$(id -u)/com.fedora-touchid-pam.helper"
+launchctl print "gui/$(id -u)/com.parallels-touchid-pam.helper"
 ```
 
 ## `provisioning: present`
@@ -127,7 +129,7 @@ Then rerun:
 
 ## SDDM Login Works but KWallet Prompts
 
-Expected. Touch ID does not provide the Fedora password to PAM modules like `pam_kwallet`.
+Expected. Touch ID does not provide the VM password to PAM modules like `pam_kwallet`.
 
 ## Disable One Service
 

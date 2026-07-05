@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+import hmac
+import hashlib
+import json
+import os
+import secrets
+import socket
+import sys
+import syslog
+import time
+from pathlib import Path
+
+
+CONFIG_PATH = Path("/etc/parallels-touchid-pam/config")
+SECRET_PATH = Path("/etc/parallels-touchid-pam/secret")
+
+
+def log(message):
+    syslog.openlog("parallels-touchid-pam", syslog.LOG_PID, syslog.LOG_AUTH)
+    syslog.syslog(syslog.LOG_NOTICE, message)
+
+
+def parse_config(path):
+    config = {}
+    if not path.exists():
+        return config
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.strip().strip('"').strip("'")
+        config[key.strip()] = value
+    return config
+
+
+def read_secret(path):
+    secret_hex = path.read_text(encoding="utf-8").strip()
+    return bytes.fromhex(secret_hex)
+
+
+def mac(secret, message):
+    return hmac.new(secret, message.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def request_message(request):
+    fields = [
+        "request-v1",
+        request["id"],
+        request["user"],
+        request["service"],
+        request["tty"],
+        request["host"],
+        request["timestamp"],
+        request["nonce"],
+    ]
+    return "\n".join(fields)
+
+
+def response_message(response):
+    fields = [
+        "response-v1",
+        response["id"],
+        response["status"],
+        response["timestamp"],
+        response["request_hmac"],
+    ]
+    return "\n".join(fields)
+
+
+def safe_unlink(path):
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def status():
+    config = parse_config(CONFIG_PATH)
+    bridge = Path(config.get("BRIDGE_DIR", ""))
+    heartbeat = bridge / "state" / "heartbeat"
+    print(f"config: {CONFIG_PATH} {'ok' if CONFIG_PATH.exists() else 'missing'}")
+    print(f"secret: {SECRET_PATH} {'ok' if SECRET_PATH.exists() else 'missing'}")
+    print(f"bridge: {bridge} {'ok' if bridge.exists() else 'missing'}")
+    if heartbeat.exists():
+        try:
+            age = time.time() - float(heartbeat.read_text(encoding="utf-8").strip())
+            print(f"heartbeat: ok age={age:.1f}s")
+        except Exception as exc:
+            print(f"heartbeat: unreadable ({exc})")
+    else:
+        print("heartbeat: missing")
+    provisioning = config.get("PROVISIONING_FILE")
+    if provisioning:
+        print(f"provisioning: {'present' if Path(provisioning).exists() else 'absent'}")
+    return 0
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--status":
+        return status()
+
+    try:
+        config = parse_config(CONFIG_PATH)
+        secret = read_secret(SECRET_PATH)
+    except Exception as exc:
+        log(f"configuration error: {exc}")
+        return 1
+
+    bridge = Path(config.get("BRIDGE_DIR", ""))
+    timeout_seconds = float(config.get("TIMEOUT_SECONDS", "45"))
+    heartbeat_max_age = float(config.get("HEARTBEAT_MAX_AGE_SECONDS", "20"))
+    allowed_users = {
+        user.strip()
+        for user in config.get("ALLOWED_USERS", "").split(",")
+        if user.strip()
+    }
+    provisioning_file = config.get("PROVISIONING_FILE", "")
+
+    pam_user = os.environ.get("PAM_USER", "")
+    pam_service = os.environ.get("PAM_SERVICE", "")
+    pam_tty = os.environ.get("PAM_TTY", "")
+
+    if allowed_users and pam_user not in allowed_users:
+        log(f"refusing user={pam_user!r} service={pam_service!r}: not allowed")
+        return 1
+
+    if provisioning_file and Path(provisioning_file).exists():
+        return 1
+
+    heartbeat = bridge / "state" / "heartbeat"
+    try:
+        age = time.time() - float(heartbeat.read_text(encoding="utf-8").strip())
+    except Exception:
+        return 1
+    if age > heartbeat_max_age:
+        return 1
+
+    requests_dir = bridge / "requests"
+    responses_dir = bridge / "responses"
+    requests_dir.mkdir(parents=True, exist_ok=True)
+    responses_dir.mkdir(parents=True, exist_ok=True)
+
+    request_id = f"{int(time.time())}-{os.getpid()}-{secrets.token_hex(12)}"
+    request = {
+        "version": "1",
+        "id": request_id,
+        "user": pam_user,
+        "service": pam_service,
+        "tty": pam_tty,
+        "host": socket.gethostname(),
+        "timestamp": str(int(time.time())),
+        "nonce": secrets.token_hex(32),
+    }
+    request["request_hmac"] = mac(secret, request_message(request))
+
+    tmp_path = requests_dir / f"{request_id}.tmp"
+    request_path = requests_dir / f"{request_id}.json"
+    response_path = responses_dir / f"{request_id}.json"
+
+    try:
+        tmp_path.write_text(json.dumps(request, sort_keys=True), encoding="utf-8")
+        os.chmod(tmp_path, 0o644)
+        tmp_path.replace(request_path)
+    except Exception as exc:
+        log(f"request write failed: {exc}")
+        return 1
+
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        while time.monotonic() < deadline:
+            if response_path.exists():
+                try:
+                    response = json.loads(response_path.read_text(encoding="utf-8"))
+                    safe_unlink(response_path)
+                    expected = mac(secret, response_message(response))
+                    if not hmac.compare_digest(expected, response.get("response_hmac", "")):
+                        log(f"bad response hmac for request={request_id}")
+                        return 1
+                    if response.get("id") != request_id:
+                        log(f"bad response id for request={request_id}")
+                        return 1
+                    if response.get("request_hmac") != request["request_hmac"]:
+                        log(f"bad request hmac echo for request={request_id}")
+                        return 1
+                    if abs(int(time.time()) - int(response.get("timestamp", "0"))) > 120:
+                        log(f"stale response for request={request_id}")
+                        return 1
+                    if response.get("status") == "ok":
+                        log(f"accepted touchid user={pam_user!r} service={pam_service!r}")
+                        return 0
+                    log(f"denied touchid user={pam_user!r} service={pam_service!r}")
+                    return 1
+                except Exception as exc:
+                    log(f"response parse failed: {exc}")
+                    return 1
+            time.sleep(0.2)
+    finally:
+        safe_unlink(request_path)
+        safe_unlink(tmp_path)
+
+    log(f"timeout user={pam_user!r} service={pam_service!r}")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

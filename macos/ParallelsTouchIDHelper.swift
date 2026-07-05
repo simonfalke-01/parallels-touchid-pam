@@ -2,11 +2,12 @@ import CryptoKit
 import Foundation
 import LocalAuthentication
 
-struct Config {
+struct VMConfig {
+    let id: String
+    let name: String
     let bridgeDir: URL
     let secret: SymmetricKey
     let allowedUsers: Set<String>
-    let pollInterval: TimeInterval
 }
 
 func parseConfig(_ url: URL) throws -> [String: String] {
@@ -32,14 +33,14 @@ func parseConfig(_ url: URL) throws -> [String: String] {
 func dataFromHex(_ hex: String) throws -> Data {
     let cleaned = hex.trimmingCharacters(in: .whitespacesAndNewlines)
     guard cleaned.count % 2 == 0 else {
-        throw NSError(domain: "FedoraTouchIDHelper", code: 1, userInfo: [NSLocalizedDescriptionKey: "invalid secret hex length"])
+        throw NSError(domain: "ParallelsTouchIDHelper", code: 1, userInfo: [NSLocalizedDescriptionKey: "invalid secret hex length"])
     }
     var data = Data()
     var index = cleaned.startIndex
     while index < cleaned.endIndex {
         let next = cleaned.index(index, offsetBy: 2)
         guard let byte = UInt8(cleaned[index..<next], radix: 16) else {
-            throw NSError(domain: "FedoraTouchIDHelper", code: 2, userInfo: [NSLocalizedDescriptionKey: "invalid secret hex"])
+            throw NSError(domain: "ParallelsTouchIDHelper", code: 2, userInfo: [NSLocalizedDescriptionKey: "invalid secret hex"])
         }
         data.append(byte)
         index = next
@@ -91,7 +92,7 @@ func readJSON(_ url: URL) throws -> [String: String] {
     let data = try Data(contentsOf: url)
     let object = try JSONSerialization.jsonObject(with: data, options: [])
     guard let dictionary = object as? [String: Any] else {
-        throw NSError(domain: "FedoraTouchIDHelper", code: 3, userInfo: [NSLocalizedDescriptionKey: "request is not a JSON object"])
+        throw NSError(domain: "ParallelsTouchIDHelper", code: 3, userInfo: [NSLocalizedDescriptionKey: "request is not a JSON object"])
     }
     var result: [String: String] = [:]
     for (key, value) in dictionary {
@@ -104,7 +105,7 @@ func authenticate(reason: String) -> Bool {
     let context = LAContext()
     var error: NSError?
     guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
-        NSLog("FedoraTouchIDHelper: Touch ID unavailable: \(String(describing: error))")
+        NSLog("ParallelsTouchIDHelper: Touch ID unavailable: \(String(describing: error))")
         return false
     }
 
@@ -112,7 +113,7 @@ func authenticate(reason: String) -> Bool {
     var accepted = false
     context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, evalError in
         if let evalError {
-            NSLog("FedoraTouchIDHelper: authentication error: \(evalError)")
+            NSLog("ParallelsTouchIDHelper: authentication error: \(evalError)")
         }
         accepted = success
         semaphore.signal()
@@ -121,7 +122,62 @@ func authenticate(reason: String) -> Bool {
     return accepted
 }
 
-func processRequest(_ requestURL: URL, config: Config) {
+func loadConfigFile(_ url: URL) throws -> VMConfig {
+    let values = try parseConfig(url)
+    guard let bridgeDir = values["BRIDGE_DIR"], let secretHex = values["SECRET_HEX"] else {
+        throw NSError(domain: "ParallelsTouchIDHelper", code: 4, userInfo: [NSLocalizedDescriptionKey: "BRIDGE_DIR and SECRET_HEX are required in \(url.path)"])
+    }
+    let secretData = try dataFromHex(secretHex)
+    let fallbackID = url.deletingPathExtension().lastPathComponent
+    let id = values["VM_ID"] ?? fallbackID
+    let name = values["VM_NAME"] ?? id
+    let allowedUsers = Set((values["ALLOWED_USERS"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+    return VMConfig(
+        id: id,
+        name: name,
+        bridgeDir: URL(fileURLWithPath: bridgeDir, isDirectory: true),
+        secret: SymmetricKey(data: secretData),
+        allowedUsers: allowedUsers
+    )
+}
+
+func configFiles(from root: URL) -> [URL] {
+    var isDir: ObjCBool = false
+    if FileManager.default.fileExists(atPath: root.path, isDirectory: &isDir), !isDir.boolValue {
+        return [root]
+    }
+    guard let entries = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else {
+        return []
+    }
+    return entries.filter { $0.pathExtension == "env" }.sorted { $0.path < $1.path }
+}
+
+func loadConfigs(from root: URL) -> [VMConfig] {
+    var configs: [VMConfig] = []
+    for file in configFiles(from: root) {
+        do {
+            configs.append(try loadConfigFile(file))
+        } catch {
+            NSLog("ParallelsTouchIDHelper: skipping config \(file.path): \(error)")
+        }
+    }
+    return configs
+}
+
+func ensureBridgeDirs(_ config: VMConfig) {
+    let fileManager = FileManager.default
+    for subdir in ["requests", "responses", "processed", "state"] {
+        try? fileManager.createDirectory(at: config.bridgeDir.appendingPathComponent(subdir, isDirectory: true), withIntermediateDirectories: true)
+    }
+}
+
+func writeHeartbeat(_ config: VMConfig) {
+    let heartbeatURL = config.bridgeDir.appendingPathComponent("state/heartbeat")
+    let timestamp = String(Date().timeIntervalSince1970)
+    try? timestamp.write(to: heartbeatURL, atomically: true, encoding: .utf8)
+}
+
+func processRequest(_ requestURL: URL, config: VMConfig) {
     do {
         let request = try readJSON(requestURL)
         guard request["version"] == "1",
@@ -130,23 +186,23 @@ func processRequest(_ requestURL: URL, config: Config) {
               let service = request["service"],
               let host = request["host"],
               let requestHMAC = request["request_hmac"] else {
-            throw NSError(domain: "FedoraTouchIDHelper", code: 4, userInfo: [NSLocalizedDescriptionKey: "missing request fields"])
+            throw NSError(domain: "ParallelsTouchIDHelper", code: 5, userInfo: [NSLocalizedDescriptionKey: "missing request fields"])
         }
         if !config.allowedUsers.isEmpty && !config.allowedUsers.contains(user) {
-            NSLog("FedoraTouchIDHelper: refusing user \(user)")
+            NSLog("ParallelsTouchIDHelper: refusing vm=\(config.name) user=\(user)")
             return
         }
         let expected = hmacHex(key: config.secret, message: requestMessage(request))
         guard expected == requestHMAC else {
-            NSLog("FedoraTouchIDHelper: bad request hmac for \(requestID)")
+            NSLog("ParallelsTouchIDHelper: bad request hmac vm=\(config.name) id=\(requestID)")
             return
         }
         guard let requestTimestamp = Int(request["timestamp"] ?? ""), abs(Int(Date().timeIntervalSince1970) - requestTimestamp) <= 120 else {
-            NSLog("FedoraTouchIDHelper: stale request \(requestID)")
+            NSLog("ParallelsTouchIDHelper: stale request vm=\(config.name) id=\(requestID)")
             return
         }
 
-        let reason = "Approve Fedora \(service) authentication for \(user) on \(host)."
+        let reason = "Approve \(config.name) \(service) authentication for \(user) on \(host)."
         let status = authenticate(reason: reason) ? "ok" : "denied"
         var response: [String: String] = [
             "version": "1",
@@ -166,51 +222,30 @@ func processRequest(_ requestURL: URL, config: Config) {
         try? FileManager.default.removeItem(at: processedURL)
         try? FileManager.default.moveItem(at: requestURL, to: processedURL)
     } catch {
-        NSLog("FedoraTouchIDHelper: failed to process \(requestURL.path): \(error)")
+        NSLog("ParallelsTouchIDHelper: failed to process vm=\(config.name) request=\(requestURL.path): \(error)")
     }
 }
 
-func loadConfig() throws -> Config {
-    let configPath: String
-    if CommandLine.arguments.count > 1 {
-        configPath = CommandLine.arguments[1]
-    } else {
-        configPath = NSHomeDirectory() + "/Library/Application Support/FedoraTouchIDPAM/config.env"
-    }
-    let values = try parseConfig(URL(fileURLWithPath: configPath))
-    guard let bridgeDir = values["BRIDGE_DIR"], let secretHex = values["SECRET_HEX"] else {
-        throw NSError(domain: "FedoraTouchIDHelper", code: 5, userInfo: [NSLocalizedDescriptionKey: "BRIDGE_DIR and SECRET_HEX are required"])
-    }
-    let secretData = try dataFromHex(secretHex)
-    let allowedUsers = Set((values["ALLOWED_USERS"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
-    let pollInterval = TimeInterval(values["POLL_INTERVAL_SECONDS"] ?? "0.5") ?? 0.5
-    return Config(
-        bridgeDir: URL(fileURLWithPath: bridgeDir, isDirectory: true),
-        secret: SymmetricKey(data: secretData),
-        allowedUsers: allowedUsers,
-        pollInterval: pollInterval
-    )
-}
+let defaultConfigRoot = NSHomeDirectory() + "/Library/Application Support/ParallelsTouchIDPAM/config.d"
+let configRoot = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : defaultConfigRoot)
+try? FileManager.default.createDirectory(at: configRoot, withIntermediateDirectories: true)
 
-let config = try loadConfig()
-let fileManager = FileManager.default
-try fileManager.createDirectory(at: config.bridgeDir.appendingPathComponent("requests", isDirectory: true), withIntermediateDirectories: true)
-try fileManager.createDirectory(at: config.bridgeDir.appendingPathComponent("responses", isDirectory: true), withIntermediateDirectories: true)
-try fileManager.createDirectory(at: config.bridgeDir.appendingPathComponent("processed", isDirectory: true), withIntermediateDirectories: true)
-try fileManager.createDirectory(at: config.bridgeDir.appendingPathComponent("state", isDirectory: true), withIntermediateDirectories: true)
-
-let heartbeatURL = config.bridgeDir.appendingPathComponent("state/heartbeat")
-NSLog("FedoraTouchIDHelper: started, bridge=\(config.bridgeDir.path)")
+NSLog("ParallelsTouchIDHelper: started, configRoot=\(configRoot.path)")
 
 while true {
-    let timestamp = String(Date().timeIntervalSince1970)
-    try? timestamp.write(to: heartbeatURL, atomically: true, encoding: .utf8)
-
-    let requestsDir = config.bridgeDir.appendingPathComponent("requests", isDirectory: true)
-    if let entries = try? fileManager.contentsOfDirectory(at: requestsDir, includingPropertiesForKeys: nil) {
-        for requestURL in entries where requestURL.pathExtension == "json" {
-            processRequest(requestURL, config: config)
+    let configs = loadConfigs(from: configRoot)
+    if configs.isEmpty {
+        NSLog("ParallelsTouchIDHelper: no VM configs found under \(configRoot.path)")
+    }
+    for config in configs {
+        ensureBridgeDirs(config)
+        writeHeartbeat(config)
+        let requestsDir = config.bridgeDir.appendingPathComponent("requests", isDirectory: true)
+        if let entries = try? FileManager.default.contentsOfDirectory(at: requestsDir, includingPropertiesForKeys: nil) {
+            for requestURL in entries where requestURL.pathExtension == "json" {
+                processRequest(requestURL, config: config)
+            }
         }
     }
-    Thread.sleep(forTimeInterval: config.pollInterval)
+    Thread.sleep(forTimeInterval: 0.5)
 }

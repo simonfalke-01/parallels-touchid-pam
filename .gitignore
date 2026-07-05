@@ -1,5 +1,6 @@
 # Runtime bridge data
 /bridge/
+/bridges/
 /provisioning/
 
 # Local macOS/Fedora clutter
@@ -11,6 +12,7 @@ __pycache__/
 *.o
 *.dSYM/
 fedora-touchid-helper
+parallels-touchid-helper
 
 # Logs and local scratch
 *.log

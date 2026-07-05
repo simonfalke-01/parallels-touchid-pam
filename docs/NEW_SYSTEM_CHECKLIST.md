@@ -1,9 +1,10 @@
-# New System Checklist
+# New VM Checklist
 
-Use this when setting up another Fedora Parallels VM.
+Use this when setting up another Parallels Linux VM.
 
 1. Confirm Touch ID works on macOS.
-2. Confirm the Fedora VM has a Parallels shared folder mounted:
+
+2. Confirm the VM has a Parallels shared folder mounted:
 
    ```bash
    mount | grep /media/psf
@@ -16,47 +17,69 @@ Use this when setting up another Fedora Parallels VM.
    cd /media/psf/iCloud/fedora-touchid-pam
    ```
 
-4. Fedora install:
+4. Install dependencies.
+
+   Fedora:
 
    ```bash
-   ./fedora/install-fedora-sudo.sh
+   sudo dnf install gcc glibc-devel openssl python3
    ```
 
-5. macOS install, from the matching shared-folder path:
+   Kali/Debian:
+
+   ```bash
+   sudo apt update
+   sudo apt install -y python3 gcc libc6-dev openssl sudo policykit-1
+   ```
+
+5. VM-side install:
+
+   ```bash
+   ./linux/install-linux-sudo.sh
+   ```
+
+   Kali wrapper:
+
+   ```bash
+   ./kali/install-kali-sudo.sh
+   ```
+
+6. macOS import, from the matching shared-folder path:
 
    ```bash
    ./macos/install-macos-helper.sh
    ```
 
-6. Test sudo:
+7. Test sudo:
 
    ```bash
    sudo -k
    sudo true
    ```
 
-7. Enable and test polkit:
+8. Enable and test polkit:
 
    ```bash
-   ./fedora/enable-fedora-polkit.sh
+   ./linux/enable-polkit.sh
    pkexec true
    ```
 
-8. Enable and test KDE unlock:
+9. Enable and test KDE unlock:
 
    ```bash
-   ./fedora/enable-fedora-kde-lock.sh
+   ./linux/enable-kde-lock.sh
    loginctl lock-session
    ```
 
-9. Optional SDDM login:
-
-   ```bash
-   ./fedora/enable-fedora-sddm-login.sh
-   ```
-
-10. Check status:
+10. Optional SDDM login:
 
     ```bash
-    ./fedora/status.sh
+    ./linux/enable-sddm-login.sh
+    ```
+
+11. Check status:
+
+    ```bash
+    ./linux/status.sh
+    ./macos/list-vms.sh
     ```
