@@ -23,18 +23,18 @@ Designed for Kali KDE Plasma 6 as well, using the generic `linux/` scripts or th
 
 ## Important
 
-The install must run from a directory visible to both the Linux VM and macOS, such as a Parallels shared folder. This repository can live in `~/fedora-touchid-pam` as the source copy, but for installation copy it to a shared path first unless the VM home directory is also mounted on macOS.
+The install must run from a directory visible to both the Linux VM and macOS, such as a Parallels shared folder. This repository can live in `~/parallels-touchid-pam` as the source copy, but for installation copy it to a shared path first unless the VM home directory is also mounted on macOS.
 
 Example VM shared path:
 
 ```bash
-/media/psf/iCloud/fedora-touchid-pam
+/media/psf/iCloud/parallels-touchid-pam
 ```
 
 Example macOS path for the same iCloud shared folder:
 
 ```bash
-$HOME/Library/Mobile Documents/com~apple~CloudDocs/fedora-touchid-pam
+$HOME/Library/Mobile Documents/com~apple~CloudDocs/parallels-touchid-pam
 ```
 
 ## Quick Install: Generic Linux VM

@@ -13,8 +13,8 @@ Use this when setting up another Parallels Linux VM.
 3. Copy this repo to the shared folder:
 
    ```bash
-   rsync -a --delete ~/fedora-touchid-pam/ /media/psf/iCloud/fedora-touchid-pam/
-   cd /media/psf/iCloud/fedora-touchid-pam
+   rsync -a --delete ~/parallels-touchid-pam/ /media/psf/iCloud/parallels-touchid-pam/
+   cd /media/psf/iCloud/parallels-touchid-pam
    ```
 
 4. Install dependencies.

@@ -39,11 +39,11 @@ sudo apt install -y python3 gcc libc6-dev openssl sudo policykit-1
 
 The bridge uses files under the project directory for request/response exchange. That directory must be visible to both the VM and macOS.
 
-If this repo lives in VM home as `~/fedora-touchid-pam`, copy it to a Parallels shared folder first:
+If this repo lives in VM home as `~/parallels-touchid-pam`, copy it to a Parallels shared folder first:
 
 ```bash
-rsync -a --delete ~/fedora-touchid-pam/ /media/psf/iCloud/fedora-touchid-pam/
-cd /media/psf/iCloud/fedora-touchid-pam
+rsync -a --delete ~/parallels-touchid-pam/ /media/psf/iCloud/parallels-touchid-pam/
+cd /media/psf/iCloud/parallels-touchid-pam
 ```
 
 Use whatever shared folder exists on the target machine. The exact macOS path must point to the same files.
@@ -87,7 +87,7 @@ Open macOS Terminal in the matching shared-folder path.
 For iCloud, the path may be:
 
 ```bash
-cd "$HOME/Library/Mobile Documents/com~apple~CloudDocs/fedora-touchid-pam"
+cd "$HOME/Library/Mobile Documents/com~apple~CloudDocs/parallels-touchid-pam"
 ```
 
 Then run:

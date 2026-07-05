@@ -7,7 +7,7 @@ This setup uses the generic Linux scripts plus Kali convenience wrappers.
 Inside Kali, copy or clone the repo into a Parallels shared folder. Example:
 
 ```bash
-cd /media/psf/iCloud/fedora-touchid-pam
+cd /media/psf/iCloud/parallels-touchid-pam
 ```
 
 Any shared folder is fine as long as macOS can access the same files.
