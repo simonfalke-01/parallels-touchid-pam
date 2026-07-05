@@ -8,6 +8,28 @@ BIN="$APP_SUPPORT/parallels-touchid-helper"
 CONFIG_DIR="$APP_SUPPORT/config.d"
 PLIST="$HOME/Library/LaunchAgents/com.parallels-touchid-pam.helper.plist"
 
+translate_vm_path_to_macos() {
+  local path="$1"
+  local project_name
+  project_name="$(basename "$PROJECT_DIR")"
+
+  if [[ "$path" == "$PROJECT_DIR"* ]]; then
+    printf '%s\n' "$path"
+  elif [[ "$path" == /media/psf/iCloud ]]; then
+    printf '%s\n' "$HOME/Library/Mobile Documents/com~apple~CloudDocs"
+  elif [[ "$path" == /media/psf/iCloud/* ]]; then
+    printf '%s/%s\n' "$HOME/Library/Mobile Documents/com~apple~CloudDocs" "${path#/media/psf/iCloud/}"
+  elif [[ "$path" == /media/psf/Home ]]; then
+    printf '%s\n' "$HOME"
+  elif [[ "$path" == /media/psf/Home/* ]]; then
+    printf '%s/%s\n' "$HOME" "${path#/media/psf/Home/}"
+  elif [[ "$path" == */"$project_name"/* ]]; then
+    printf '%s/%s\n' "$PROJECT_DIR" "${path#*/"$project_name"/}"
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
 PROVISIONING_FILE=""
 for candidate in \
   "$PROJECT_DIR/provisioning/parallels-touchid-pam.env" \
@@ -36,6 +58,7 @@ source "$PROVISIONING_FILE"
 
 VM_NAME="${VM_NAME:-${FEDORA_HOST:-${VM_HOST:-$(basename "$PROJECT_DIR")}}}"
 VM_ID="${VM_ID:-$(printf '%s' "$VM_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//; s/^$/vm/')}"
+BRIDGE_DIR="${MACOS_BRIDGE_DIR:-$(translate_vm_path_to_macos "$BRIDGE_DIR")}"
 CONFIG="$CONFIG_DIR/$VM_ID.env"
 
 mkdir -p "$APP_SUPPORT" "$CONFIG_DIR" "$HOME/Library/LaunchAgents" "$BRIDGE_DIR/requests" "$BRIDGE_DIR/responses" "$BRIDGE_DIR/processed" "$BRIDGE_DIR/state"
