@@ -168,3 +168,36 @@ remove_pam_hook() {
     echo "No hook found: $file"
   fi
 }
+
+write_pam_service_with_hook() {
+  local file="$1"
+  local tmp
+  tmp="$(mktemp)"
+
+  {
+    echo "#%PAM-1.0"
+    echo "$PAM_MARKER_BEGIN"
+    echo "$PAM_HOOK_LINE"
+    echo "$PAM_MARKER_END"
+    echo
+    if [[ -f /etc/pam.d/common-auth ]]; then
+      echo "@include common-auth"
+      echo "@include common-account"
+      echo "@include common-password"
+      echo "@include common-session"
+    elif [[ -f /etc/pam.d/system-auth || -f /usr/lib/pam.d/system-auth ]]; then
+      echo "auth       include      system-auth"
+      echo "account    include      system-auth"
+      echo "password   include      system-auth"
+      echo "session    include      system-auth"
+    else
+      echo "Unable to identify PAM include stack" >&2
+      rm -f "$tmp"
+      return 1
+    fi
+  } > "$tmp"
+
+  install -m 0644 -o root -g root "$tmp" "$file"
+  rm -f "$tmp"
+  echo "Created PAM service with Touch ID hook: $file"
+}

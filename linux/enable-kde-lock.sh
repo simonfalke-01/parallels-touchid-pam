@@ -18,6 +18,6 @@ for file in /etc/pam.d/kde /etc/pam.d/kscreensaver /etc/pam.d/kcheckpass; do
 done
 
 if [[ "$enabled" -eq 0 ]]; then
-  echo "No KDE lock PAM files found" >&2
-  exit 1
+  echo "No KDE lock PAM files found; creating /etc/pam.d/kde"
+  write_pam_service_with_hook /etc/pam.d/kde
 fi
